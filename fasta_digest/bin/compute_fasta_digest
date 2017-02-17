@@ -4,7 +4,9 @@ import argparse
 import errno
 import os
 import sys
+import gzip
 import logging
+import mimetypes
 import json
 import coloredlogs
 
@@ -62,11 +64,16 @@ def main(args):
     if not os.path.isfile(ref_file):
         logging.error("The reference file {} does not exist".format(ref_file))
         sys.exit(1)
+    
+    openfn = open 
+    typ, enc = mimetypes.guess_type(ref_file)
+    if enc == 'gzip':
+        openfn = gzip.open
 
     seq_hasher = hashlib.sha256()
     name_hasher = hashlib.sha256()
     n, slen, qlen = 0, 0, 0
-    with open(ref_file) as ifile:
+    with openfn(ref_file) as ifile:
         for name, seq, qual in readfq(ifile):
             seq_hasher.update(b"{}".format(seq))
             name_hasher.update(b"{}".format(name))
