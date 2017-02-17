@@ -1,0 +1,94 @@
+#!/usr/bin/env python
+import hashlib
+import argparse
+import errno
+import os
+import sys
+import logging
+import json
+import coloredlogs
+
+##
+# from : http://stackoverflow.com/questions/600268/mkdir-p-functionality-in-python
+##
+def mkdir_p(path):
+    try:
+        os.makedirs(path)
+    except OSError as exc:  # Python >2.5
+        if exc.errno == errno.EEXIST and os.path.isdir(path):
+            pass
+        else:
+            raise
+##
+# from : https://raw.githubusercontent.com/lh3/readfq/master/readfq.py
+##
+def readfq(fp): # this is a generator function
+    last = None # this is a buffer keeping the last unprocessed line
+    while True: # mimic closure; is it a bad idea?
+        if not last: # the first record or a record following a fastq
+            for l in fp: # search for the start of the next record
+                if l[0] in '>@': # fasta/q header line
+                    last = l[:-1] # save this line
+                    break
+        if not last: break
+        name, seqs, last = last[1:].partition(" ")[0], [], None
+        for l in fp: # read the sequence
+            if l[0] in '@+>':
+                last = l[:-1]
+                break
+            seqs.append(l[:-1])
+        if not last or last[0] != '+': # this is a fasta record
+            yield name, ''.join(seqs), None # yield a fasta record
+            if not last: break
+        else: # this is a fastq record
+            seq, leng, seqs = ''.join(seqs), 0, []
+            for l in fp: # read the quality
+                seqs.append(l[:-1])
+                leng += len(l) - 1
+                if leng >= len(seq): # have read enough quality
+                    last = None
+                    yield name, seq, ''.join(seqs); # yield a fastq record
+                    break
+            if last: # reach EOF before reading enough quality
+                yield name, seq, None # yield a fasta record instead
+                break
+
+def main(args):
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger("compute_fasta_digest")
+    coloredlogs.install(level='INFO')
+
+    ref_file = args.reference
+    if not os.path.isfile(ref_file):
+        logging.error("The reference file {} does not exist".format(ref_file))
+        sys.exit(1)
+
+    seq_hasher = hashlib.sha256()
+    name_hasher = hashlib.sha256()
+    n, slen, qlen = 0, 0, 0
+    with open(ref_file) as ifile:
+        for name, seq, qual in readfq(ifile):
+            seq_hasher.update(b"{}".format(seq))
+            name_hasher.update(b"{}".format(name))
+    print("seq_hash : {}".format(seq_hasher.hexdigest()))
+    print("name_hash : {}".format(name_hasher.hexdigest()))
+    
+    if args.out:
+        out_file = args.out
+        out_dir = os.path.abspath(os.path.sep.join(os.path.sep.split(out_file)[:-1]))
+        try:
+            mkdir_p(out_dir)
+        except OSError as exc:
+            logger.critical('Error creating output file {}'.format(exc))
+            sys.exit(1)
+        vdict = { 'seq_hash' : seq_hasher.hexdigest(), 'name_hash' : name_hasher.hexdigest() }
+        with open(out_file, 'w') as ofile:
+            ofile.write(json.dumps(vdict, indent=4, sort_keys=True))
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Compute the signature of a reference fasta')
+    parser.add_argument('--reference', type=str, help='The reference fasta file')
+    parser.add_argument('--out', type=str, nargs='?', help='The json file where output should be written')
+    args = parser.parse_args()
+    main(args)
