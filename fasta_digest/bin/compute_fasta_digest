@@ -75,8 +75,8 @@ def main(args):
     n, slen, qlen = 0, 0, 0
     with openfn(ref_file) as ifile:
         for name, seq, qual in readfq(ifile):
-            seq_hasher.update(b"{}".format(seq))
-            name_hasher.update(b"{}".format(name))
+            seq_hasher.update(bytes("{}".format(seq).encode()))
+            name_hasher.update(bytes("{}".format(name).encode()))
     print("seq_hash : {}".format(seq_hasher.hexdigest()))
     print("name_hash : {}".format(name_hasher.hexdigest()))
     
